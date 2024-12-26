@@ -109,6 +109,8 @@ function two_phase_simplex(object::Matrix{T}, conditions_A::Matrix{T}, condition
     xBasic = inv(basic) * conditions_b
 
     if all(xBasic .>= 0)
+        println("実行可能解を発見しました")
+        println("単体法を実行します")
         x, z = simplex(object, conditions_A, conditions_b)
         return x, z
     end
@@ -140,7 +142,9 @@ function two_phase_simplex(object::Matrix{T}, conditions_A::Matrix{T}, condition
         if minimum(expect) >= 0
             println("収束しました")
             println("実行可能解を発見しました")
+            println("非基底ベクトル：", nonBasicSpecifier, " = ", zeros(length(nonBasicSpecifier)))
             println("基底ベクトル：", basicSpecifier, " = ", xBasic)
+            println("補助変数は ", expvars, " です")
             break
         end
 
@@ -157,6 +161,7 @@ function two_phase_simplex(object::Matrix{T}, conditions_A::Matrix{T}, condition
     end
 
     pop!(nonBasicSet, expvars)
+    println("単体法を実行します")
     x, z = simplex(object, conditions_A, conditions_b, nonBasicSet)
     return x, z
 end
