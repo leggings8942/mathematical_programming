@@ -2,3 +2,9 @@ name = "linear_prog_prob"
 uuid = "5d505676-9eff-4584-b1e0-faf0b3abbc88"
 authors = ["h_nagino "]
 version = "0.1.0"
+
+[deps]
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+
+[compat]
+LinearAlgebra = "1.11.0"

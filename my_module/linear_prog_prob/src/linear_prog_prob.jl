@@ -1,5 +1,7 @@
 module linear_prog_prob
-export simplex, two_phase_simplex
+using LinearAlgebra
+
+export simplex, two_phase_simplex, convert_dual_problem
 
 function simplex(object::Matrix{T}, conditions_A::Matrix{T}, conditions_b::Vector{T}, non_Basic_Set::Union{Nothing, Set{Int}}=nothing) where T <: Union{Int, AbstractFloat}
     @assert size(object)[1] == 1 "the objective variable must be a horizontal vector :: size(object) = $(size(object))"
@@ -7,26 +9,26 @@ function simplex(object::Matrix{T}, conditions_A::Matrix{T}, conditions_b::Vecto
     @assert size(object)[2] == size(conditions_A)[2] "the conditions variable's dimentions do not match :: size(object) = $(size(object)), size(conditions_A) = $(size(conditions_A))"
 
     condits, expvars = size(conditions_A)
-    @assert condits < expvars "The number of explanatory variables is greater than the number of conditions."
-
     if isnothing(non_Basic_Set)
-        nonBasicSet = Set(1:(expvars - condits))
-        basicSet    = Set((expvars - condits + 1):expvars)
+        nonBasicSet = Set(1:expvars)
+        basicSet    = Set((expvars + 1):(expvars + condits))
     else
         nonBasicSet = non_Basic_Set
-        basicSet    = setdiff(Set(1:expvars), nonBasicSet)
+        basicSet    = setdiff(Set(1:(expvars + condits)), nonBasicSet)
     end
-    x           = zeros(Float64, expvars)
+    Obj         = hcat(object, zeros(T, 1, condits))
+    Cond_A      = hcat(conditions_A, Matrix{T}(I, condits, condits))
+    x           = zeros(Float64, expvars + condits)
     z           = 0.0
     count       = 0
     while true
         nonBasicSpecifier = collect(nonBasicSet)
         basicSpecifier    = collect(basicSet)
 
-        nonBasic = conditions_A[1:end, nonBasicSpecifier]
-        basic    = conditions_A[1:end, basicSpecifier]
-        coefNonBasic = object[1, nonBasicSpecifier]
-        coefBasic    = object[1, basicSpecifier]
+        nonBasic = Cond_A[1:end, nonBasicSpecifier]
+        basic    = Cond_A[1:end, basicSpecifier]
+        coefNonBasic = Obj[1, nonBasicSpecifier]
+        coefBasic    = Obj[1, basicSpecifier]
 
         inv_b  = inv(basic)
         B_dash = inv_b * conditions_b
@@ -91,10 +93,10 @@ function two_phase_simplex(object::Matrix{T}, conditions_A::Matrix{T}, condition
     @assert size(object)[2] == size(conditions_A)[2] "the conditions variable's dimentions do not match :: size(object) = $(size(object)), size(conditions_A) = $(size(conditions_A))"
 
     condits, expvars = size(conditions_A)
-    @assert condits < expvars "The number of explanatory variables is greater than the number of conditions."
+    Cond_A           = hcat(conditions_A, Matrix{T}(I, condits, condits))
 
-    auxiliar_object       = hcat(zeros(T, 1, expvars),  ones(1, 1))
-    auxiliar_conditions_A = hcat(conditions_A,         -ones(condits, 1))
+    auxiliar_object       = hcat(zeros(T, 1, expvars + condits),  ones(1, 1))
+    auxiliar_conditions_A = hcat(Cond_A,                         -ones(condits, 1))
     condits, expvars      = size(auxiliar_conditions_A)
 
     nonBasicSet = Set(1:(expvars - 1 - condits))
@@ -164,6 +166,7 @@ function two_phase_simplex(object::Matrix{T}, conditions_A::Matrix{T}, condition
         bland_candid = findall(x -> x == minimum(filter(x->x≠0, expect)), expect)
         idx_nonBasic = bland_candid[findfirst(x -> nonBasicSpecifier[x] == minimum(nonBasicSpecifier[bland_candid]), bland_candid)]
         xBasic2      = xBasic ./ N_dash[:, idx_nonBasic]
+        xBasic2[xBasic2 .< 0] .= Inf64 # 非負制約
         bland_candid = findall(x -> x == minimum(xBasic2), xBasic2)
         idx_basic    = bland_candid[findfirst(x -> basicSpecifier[x] == minimum(basicSpecifier[bland_candid]), bland_candid)]
 
@@ -174,6 +177,18 @@ function two_phase_simplex(object::Matrix{T}, conditions_A::Matrix{T}, condition
     end
 
     return nothing
+end
+
+function convert_dual_problem(object::Matrix{T}, conditions_A::Matrix{T}, conditions_b::Vector{T}) where T <: Union{Int, AbstractFloat}
+    @assert size(object)[1] == 1 "the objective variable must be a horizontal vector :: size(object) = $(size(object))"
+    @assert size(conditions_A)[1] == length(conditions_b) "the conditions variable's dimentions do not match :: size(conditions_A) = $(size(conditions_A)), length(conditions_b) = $(length(conditions_b))"
+    @assert size(object)[2] == size(conditions_A)[2] "the conditions variable's dimentions do not match :: size(object) = $(size(object)), size(conditions_A) = $(size(conditions_A))"
+
+    dual_object       = -Matrix(conditions_b')
+    dual_conditions_A = -Matrix(conditions_A')
+    dual_conditions_b = -(object')[:]
+
+    return dual_object, dual_conditions_A, dual_conditions_b
 end
 
 end # module linear_prog_prob
