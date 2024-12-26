@@ -141,11 +141,24 @@ function two_phase_simplex(object::Matrix{T}, conditions_A::Matrix{T}, condition
 
         if minimum(expect) >= 0
             println("収束しました")
-            println("実行可能解を発見しました")
-            println("非基底ベクトル：", nonBasicSpecifier, " = ", zeros(length(nonBasicSpecifier)))
-            println("基底ベクトル：", basicSpecifier, " = ", xBasic)
-            println("補助変数は ", expvars, " です")
-            break
+
+            if coefBasic' * xBasic == 0
+                println("実行可能解を発見しました")
+                println("非基底ベクトル：", nonBasicSpecifier, " = ", zeros(length(nonBasicSpecifier)))
+                println("基底ベクトル：", basicSpecifier, " = ", xBasic)
+                println("補助変数は ", expvars, " です")
+
+                pop!(nonBasicSet, expvars)
+                println("単体法を実行します")
+                x, z = simplex(object, conditions_A, conditions_b, nonBasicSet)
+                return x, z
+            else
+                println("実行可能解を得られませんでした")
+                println("非基底ベクトル：", nonBasicSpecifier, " = ", zeros(length(nonBasicSpecifier)))
+                println("基底ベクトル：", basicSpecifier, " = ", xBasic)
+                println("補助変数は ", expvars, " です")
+                return nothing
+            end
         end
 
         bland_candid = findall(x -> x == minimum(filter(x->x≠0, expect)), expect)
@@ -160,10 +173,7 @@ function two_phase_simplex(object::Matrix{T}, conditions_A::Matrix{T}, condition
         pop!( basicSet,    basicSpecifier[idx_basic])
     end
 
-    pop!(nonBasicSet, expvars)
-    println("単体法を実行します")
-    x, z = simplex(object, conditions_A, conditions_b, nonBasicSet)
-    return x, z
+    return nothing
 end
 
 end # module linear_prog_prob
