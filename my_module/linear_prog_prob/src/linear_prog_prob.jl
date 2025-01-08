@@ -1,9 +1,16 @@
 module linear_prog_prob
 using LinearAlgebra
 
+export LP_Prob
 export simplex, two_phase_simplex, convert_dual_problem
 
-function simplex(object::Matrix{T}, conditions_A::Matrix{T}, conditions_b::Vector{T}, non_Basic_Set::Union{Nothing, Set{Int}}=nothing) where T <: Union{Int, AbstractFloat}
+@enum LP_Prob begin
+    Standard
+    No_nonNegative
+    Equality
+end
+
+function standard_simplex(object::Matrix{T}, conditions_A::Matrix{T}, conditions_b::Vector{T}, non_Basic_Set::Union{Nothing, Set{Int}}=nothing) where T <: Union{Int, AbstractFloat}
     @assert size(object)[1] == 1 "the objective variable must be a horizontal vector :: size(object) = $(size(object))"
     @assert size(conditions_A)[1] == length(conditions_b) "the conditions variable's dimentions do not match :: size(conditions_A) = $(size(conditions_A)), length(conditions_b) = $(length(conditions_b))"
     @assert size(object)[2] == size(conditions_A)[2] "the conditions variable's dimentions do not match :: size(object) = $(size(object)), size(conditions_A) = $(size(conditions_A))"
@@ -62,7 +69,8 @@ function simplex(object::Matrix{T}, conditions_A::Matrix{T}, conditions_b::Vecto
         bland_candid = findall(x -> x == maximum(expect), expect)
         idx_nonBasic = bland_candid[findfirst(x -> nonBasicSpecifier[x] == minimum(nonBasicSpecifier[bland_candid]), bland_candid)]
         xBasic2      = xBasic ./ N_dash[:, idx_nonBasic]
-        xBasic2[xBasic2 .< 0] .= Inf64 # 非負制約
+        xBasic2[xBasic2 .< 0]    .= Inf64 # 非負制約
+        xBasic2[isnan.(xBasic2)] .= Inf64 # 非数値制約
         bland_candid = findall(x -> x == minimum(xBasic2), xBasic2)
         idx_basic    = bland_candid[findfirst(x -> basicSpecifier[x]    == minimum(basicSpecifier[bland_candid]),    bland_candid)]
 
@@ -87,7 +95,7 @@ function simplex(object::Matrix{T}, conditions_A::Matrix{T}, conditions_b::Vecto
     return x, z
 end
 
-function two_phase_simplex(object::Matrix{T}, conditions_A::Matrix{T}, conditions_b::Vector{T}) where T <: Union{Int, AbstractFloat}
+function standard_two_phase_simplex(object::Matrix{T}, conditions_A::Matrix{T}, conditions_b::Vector{T}) where T <: Union{Int, AbstractFloat}
     @assert size(object)[1] == 1 "the objective variable must be a horizontal vector :: size(object) = $(size(object))"
     @assert size(conditions_A)[1] == length(conditions_b) "the conditions variable's dimentions do not match :: size(conditions_A) = $(size(conditions_A)), length(conditions_b) = $(length(conditions_b))"
     @assert size(object)[2] == size(conditions_A)[2] "the conditions variable's dimentions do not match :: size(object) = $(size(object)), size(conditions_A) = $(size(conditions_A))"
@@ -149,10 +157,31 @@ function two_phase_simplex(object::Matrix{T}, conditions_A::Matrix{T}, condition
                 println("非基底ベクトル：", nonBasicSpecifier, " = ", zeros(length(nonBasicSpecifier)))
                 println("基底ベクトル：", basicSpecifier, " = ", xBasic)
                 println("補助変数は ", expvars, " です")
+                
+                try
+                    pop!(nonBasicSet, expvars)
+                catch
+                    println("補助変数が存在しません")
+                    pop!(basicSet, expvars)
 
-                pop!(nonBasicSet, expvars)
+                    proxyVariable = rand(nonBasicSet)
+                    while true
+                        try
+                            proxyVariable  = rand(nonBasicSet)
+                            proxySpecifier = collect(basicSet ∪ Set(proxyVariable))
+                            basic  = Cond_A[1:end, proxySpecifier]
+                            inv(basic)
+                            break
+                        catch
+                            continue
+                        end
+                    end
+
+                    pop!(nonBasicSet, proxyVariable)
+                end
+                println("基数の初期値を設定しました：", nonBasicSet)
                 println("単体法を実行します")
-                x, z = simplex(object, conditions_A, conditions_b, nonBasicSet)
+                x, z = standard_simplex(object, conditions_A, conditions_b, nonBasicSet)
                 return x, z
             else
                 println("実行可能解を得られませんでした")
@@ -179,7 +208,84 @@ function two_phase_simplex(object::Matrix{T}, conditions_A::Matrix{T}, condition
     return nothing
 end
 
-function convert_dual_problem(object::Matrix{T}, conditions_A::Matrix{T}, conditions_b::Vector{T}) where T <: Union{Int, AbstractFloat}
+function simplex(object::Matrix{T}, conditions_A::Matrix{T}, conditions_b::Vector{T}; format::LP_Prob=Standard, non_Basic_Set::Union{Nothing, Set{Int}}=nothing) where T <: Union{Int, AbstractFloat}
+    @assert size(object)[1] == 1 "the objective variable must be a horizontal vector :: size(object) = $(size(object))"
+    @assert size(conditions_A)[1] == length(conditions_b) "the conditions variable's dimentions do not match :: size(conditions_A) = $(size(conditions_A)), length(conditions_b) = $(length(conditions_b))"
+    @assert size(object)[2] == size(conditions_A)[2] "the conditions variable's dimentions do not match :: size(object) = $(size(object)), size(conditions_A) = $(size(conditions_A))"
+    
+    if format == Standard
+        return standard_simplex(object, conditions_A, conditions_b, non_Basic_Set)
+    elseif format == No_nonNegative
+        convert_object       = hcat(object,       -object)
+        convert_conditions_A = hcat(conditions_A, -conditions_A)
+        convert_conditions_b = conditions_b
+        if isnothing(non_Basic_Set)
+            return standard_simplex(convert_object, convert_conditions_A, convert_conditions_b)
+        else
+            convert_non_Basic_Set = non_Basic_Set ∪ Set(collect(non_Basic_Set) .+ (expvars + condits))
+            return standard_simplex(convert_object, convert_conditions_A, convert_conditions_b, convert_non_Basic_Set)
+        end
+    elseif format == Equality
+        convert_object       = object
+        convert_conditions_A = vcat(conditions_A, -conditions_A)
+        convert_conditions_b = vcat(conditions_b, -conditions_b)
+        return standard_simplex(convert_object, convert_conditions_A, convert_conditions_b, non_Basic_Set)
+    end
+
+    return nothing
+end
+
+function two_phase_simplex(object::Matrix{T}, conditions_A::Matrix{T}, conditions_b::Vector{T}; format::LP_Prob=Standard) where T <: Union{Int, AbstractFloat}
+    @assert size(object)[1] == 1 "the objective variable must be a horizontal vector :: size(object) = $(size(object))"
+    @assert size(conditions_A)[1] == length(conditions_b) "the conditions variable's dimentions do not match :: size(conditions_A) = $(size(conditions_A)), length(conditions_b) = $(length(conditions_b))"
+    @assert size(object)[2] == size(conditions_A)[2] "the conditions variable's dimentions do not match :: size(object) = $(size(object)), size(conditions_A) = $(size(conditions_A))"
+
+    if format == Standard
+        res = standard_two_phase_simplex(object, conditions_A, conditions_b)
+        if isnothing(res)
+            return nothing
+        else
+            convert_x, convert_z = res
+        end
+
+        x = convert_x[1:length(object)]
+        z = convert_z
+        return x, z
+    elseif format == No_nonNegative
+        convert_object       = hcat(object,       -object)
+        convert_conditions_A = hcat(conditions_A, -conditions_A)
+        convert_conditions_b = conditions_b
+        res = standard_two_phase_simplex(convert_object, convert_conditions_A, convert_conditions_b)
+        if isnothing(res)
+            return nothing
+        else
+            convert_x, convert_z = res
+        end
+
+        x = convert_x[1:length(object)] - convert_x[(length(object) + 1):2*length(object)]
+        z = convert_z
+        return x, z
+    elseif format == Equality
+        convert_object       = object
+        convert_conditions_A = vcat(conditions_A, -conditions_A)
+        convert_conditions_b = vcat(conditions_b, -conditions_b)
+        res = standard_two_phase_simplex(convert_object, convert_conditions_A, convert_conditions_b)
+        if isnothing(res)
+            return nothing
+        else
+            convert_x, convert_z = res
+        end
+        
+
+        x = convert_x[1:length(object)]
+        z = convert_z
+        return x, z
+    end
+
+    return nothing
+end
+
+function convert_dual_problem(object::Matrix{T}, conditions_A::Matrix{T}, conditions_b::Vector{T}; format::LP_Prob=Standard) where T <: Union{Int, AbstractFloat}
     @assert size(object)[1] == 1 "the objective variable must be a horizontal vector :: size(object) = $(size(object))"
     @assert size(conditions_A)[1] == length(conditions_b) "the conditions variable's dimentions do not match :: size(conditions_A) = $(size(conditions_A)), length(conditions_b) = $(length(conditions_b))"
     @assert size(object)[2] == size(conditions_A)[2] "the conditions variable's dimentions do not match :: size(object) = $(size(object)), size(conditions_A) = $(size(conditions_A))"
@@ -188,7 +294,16 @@ function convert_dual_problem(object::Matrix{T}, conditions_A::Matrix{T}, condit
     dual_conditions_A = -Matrix(conditions_A')
     dual_conditions_b = -(object')[:]
 
-    return dual_object, dual_conditions_A, dual_conditions_b
+    dual_format       = 
+            if format == Standard
+                Standard
+            elseif format == No_nonNegative
+                Equality
+            elseif format == Equality
+                No_nonNegative
+            end
+
+    return dual_object, dual_conditions_A, dual_conditions_b, dual_format
 end
 
 end # module linear_prog_prob
