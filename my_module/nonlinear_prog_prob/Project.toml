@@ -1,0 +1,10 @@
+name = "nonlinear_prog_prob"
+uuid = "9f1e6578-d423-4606-8da1-df723af8c9c6"
+authors = ["leggings8942 <h_nagino@adinte.co.jp>"]
+version = "0.1.0"
+
+[deps]
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+
+[compat]
+LinearAlgebra = "1.11.0"
